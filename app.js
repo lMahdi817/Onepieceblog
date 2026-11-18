@@ -71,6 +71,21 @@
   const readMins = (t) => Math.max(1, Math.ceil(String(t || '').split(/\s+/).length / 170));
   const paragraphs = (t) => String(t || '').split(/\n{2,}/).map((s) => s.trim()).filter(Boolean);
 
+  const FOLDER_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4.2l2 2.2h8.8A1.5 1.5 0 0 1 21 8.7v9.8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"/></svg>';
+
+  /* هايلايت: ==نص== يظهر بخلفية ملوّنة */
+  function inline(parent, text) {
+    const re = /==([\s\S]+?)==/g;
+    let last = 0, m;
+    while ((m = re.exec(text))) {
+      if (m.index > last) parent.append(document.createTextNode(text.slice(last, m.index)));
+      parent.append(el('mark', { text: m[1] }));
+      last = m.index + m[0].length;
+    }
+    if (last < text.length) parent.append(document.createTextNode(text.slice(last)));
+    return parent;
+  }
+
   function renderBody(box, text) {
     box.textContent = '';
     paragraphs(text).forEach((para) => {
@@ -80,9 +95,9 @@
           ? el('img', { src: mediaUrl(m[2]), alt: '', loading: 'lazy' })
           : el('video', { src: mediaUrl(m[2]), controls: '', preload: 'metadata', playsinline: '' }));
       } else if (para.indexOf('## ') === 0) {
-        box.append(el('h2', { text: para.slice(3) }));
+        box.append(inline(el('h2'), para.slice(3)));
       } else {
-        box.append(el('p', { text: para }));
+        box.append(inline(el('p'), para));
       }
     });
   }
@@ -92,7 +107,9 @@
     const h = (location.hash || '').replace(/^#/, '');
     if (h.indexOf('p-') === 0) return { name: 'post', id: h.slice(2) };
     if (h.indexOf('edit-') === 0) return { name: 'edit', id: h.slice(5) };
+    if (h.indexOf('f-') === 0) return { name: 'folder', id: h.slice(2) };
     if (h === 'write') return { name: 'write' };
+    if (h.indexOf('write-') === 0) return { name: 'write', folder: h.slice(6) };
     if (h === 'login') return { name: 'login' };
     return { name: 'home' };
   }
@@ -101,7 +118,9 @@
     topActions.textContent = '';
     foot.textContent = '';
     if (isAdmin) {
-      if (route.name === 'home') topActions.append(el('a', { class: 'btn primary', href: '#write', text: 'تدوينة جديدة' }));
+      if (route.name === 'home' || route.name === 'folder') {
+        topActions.append(el('a', { class: 'btn primary', href: route.folder || route.id ? '#write-' + route.id : '#write', text: 'تدوينة جديدة' }));
+      }
       const out = el('button', { class: 'btn', type: 'button', text: 'خروج' });
       out.addEventListener('click', () => { adminPw = ''; isAdmin = false; lsDel('blog-admin'); location.hash = 'home'; go(); });
       topActions.append(out);
@@ -123,21 +142,27 @@
     window.scrollTo(0, 0);
     try {
       if (route.name === 'home') {
-        const d = await api('GET', '/posts');
+        const [d, fd] = await Promise.all([api('GET', '/posts'), api('GET', '/folders')]);
         if (my !== routeSeq) return;
-        renderHome(d.posts);
+        renderHome(d.posts, fd.folders);
+      } else if (route.name === 'folder') {
+        const [d, fd] = await Promise.all([api('GET', '/posts'), api('GET', '/folders')]);
+        if (my !== routeSeq) return;
+        renderFolder(route.id, d.posts, fd.folders);
       } else if (route.name === 'post') {
         const d = await api('GET', '/posts/' + encodeURIComponent(route.id));
         if (my !== routeSeq) return;
         renderPost(d);
       } else if (route.name === 'write') {
         if (!isAdmin) { location.hash = 'login'; return; }
-        renderEditor(null);
+        const fd = await api('GET', '/folders');
+        if (my !== routeSeq) return;
+        renderEditor(null, fd.folders, route.folder || '');
       } else if (route.name === 'edit') {
         if (!isAdmin) { location.hash = 'login'; return; }
-        const d = await api('GET', '/posts/' + encodeURIComponent(route.id));
+        const [d, fd] = await Promise.all([api('GET', '/posts/' + encodeURIComponent(route.id)), api('GET', '/folders')]);
         if (my !== routeSeq) return;
-        renderEditor(d.post);
+        renderEditor(d.post, fd.folders, d.post.folder || '');
       } else if (route.name === 'login') {
         renderLogin();
       }
@@ -147,24 +172,95 @@
       const retry = el('button', { class: 'btn', type: 'button', text: 'حاول مرة ثانية' });
       retry.addEventListener('click', go);
       view.append(el('p', { class: 'empty', text: e.status === 404 ? 'ما لقينا هذي الصفحة. ممكن تكون انحذفت.' : e.message }),
-        e.status === 404 ? el('a', { class: 'back', href: '#home', text: '→ كل التدوينات' }) : retry);
+        e.status === 404 ? el('a', { class: 'back', href: '#home', text: '→ الرئيسية' }) : retry);
     }
   }
 
   /* ---------- الصفحة الرئيسية ---------- */
-  function renderHome(posts) {
-    view.textContent = '';
+  function postCards(posts) {
     const list = el('section', { class: 'cards' });
-    if (!posts.length) {
-      list.append(el('p', { class: 'empty', text: isAdmin ? 'ما كتبت شي للحين. اضغط «تدوينة جديدة» وابدأ.' : 'ما فيه تدوينات للحين. ارجع قريب.' }));
-    }
     posts.forEach((p) => {
       const kids = [];
       if (p.thumb) kids.push(el('img', { src: mediaUrl(p.thumb), alt: '', loading: 'lazy' }));
       kids.push(el('h2', { text: p.title }));
       list.append(el('a', { class: 'card' + (p.thumb ? '' : ' plain'), href: '#p-' + p.id }, kids));
     });
-    view.append(list);
+    return list;
+  }
+
+  function renderHome(posts, folders) {
+    view.textContent = '';
+    if (isAdmin) {
+      const name = el('input', { class: 'field', type: 'text', maxlength: '60', placeholder: 'اسم مجلد جديد', 'aria-label': 'اسم المجلد' });
+      const add = el('button', { class: 'btn primary', type: 'submit', text: 'إضافة مجلد' });
+      const form = el('form', { class: 'newfolder' }, [name, add]);
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const v = name.value.trim();
+        if (!v) return;
+        add.disabled = true;
+        try { await api('POST', '/folders', { name: v }); go(); }
+        catch (err) { add.disabled = false; notify(err.message); }
+      });
+      view.append(form);
+    }
+    if (folders.length) {
+      const grid = el('section', { class: 'folders' });
+      folders.forEach((f) => {
+        const n = posts.filter((p) => p.folder === f.id).length;
+        grid.append(el('a', { class: 'folder', href: '#f-' + f.id }, [
+          el('span', { class: 'ficon', html: FOLDER_ICON }),
+          el('b', { text: f.name }),
+          el('small', { text: n + (n === 1 ? ' تدوينة' : ' تدوينات') }),
+        ]));
+      });
+      view.append(grid);
+    }
+    const ids = new Set(folders.map((f) => f.id));
+    const loose = posts.filter((p) => !p.folder || !ids.has(p.folder));
+    if (folders.length && loose.length) view.append(el('h3', { class: 'sec', text: 'تدوينات بدون مجلد' }));
+    if (!posts.length) {
+      view.append(el('p', { class: 'empty', text: isAdmin ? 'ما كتبت شي للحين. اضغط «تدوينة جديدة» وابدأ.' : 'ما فيه تدوينات للحين. ارجع قريب.' }));
+    } else if (loose.length) {
+      view.append(postCards(loose));
+    }
+  }
+
+  function renderFolder(fid, posts, folders) {
+    view.textContent = '';
+    const f = folders.find((x) => x.id === fid);
+    if (!f) {
+      view.append(el('p', { class: 'empty', text: 'ما لقينا هذا المجلد.' }), el('a', { class: 'back', href: '#home', text: '→ الرئيسية' }));
+      return;
+    }
+    view.append(el('a', { class: 'back', href: '#home', text: '→ الرئيسية' }));
+    const h = el('h1', { class: 'ftitle', text: f.name });
+    view.append(h);
+    if (isAdmin) {
+      const name = el('input', { class: 'field', type: 'text', maxlength: '60', 'aria-label': 'اسم المجلد' });
+      name.value = f.name;
+      const ren = el('button', { class: 'btn', type: 'submit', text: 'تغيير الاسم' });
+      const del = el('button', { class: 'btn danger', type: 'button', text: 'حذف المجلد' });
+      const form = el('form', { class: 'newfolder' }, [name, ren]);
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const v = name.value.trim();
+        if (!v) return;
+        ren.disabled = true;
+        try { await api('PUT', '/folders/' + f.id, { name: v }); go(); }
+        catch (err) { ren.disabled = false; notify(err.message); }
+      });
+      del.addEventListener('click', async () => {
+        if (!del.dataset.sure) { del.dataset.sure = '1'; del.textContent = 'تأكيد الحذف (التدوينات ما تنحذف)'; return; }
+        del.disabled = true;
+        try { await api('DELETE', '/folders/' + f.id); location.hash = 'home'; }
+        catch (err) { del.disabled = false; notify(err.message); }
+      });
+      view.append(form, el('div', { class: 'owner-actions' }, [del]));
+    }
+    const mine = posts.filter((p) => p.folder === fid);
+    if (!mine.length) view.append(el('p', { class: 'empty', text: 'المجلد فاضي للحين.' }));
+    else view.append(postCards(mine));
   }
 
   /* ---------- صفحة التدوينة ---------- */
@@ -175,6 +271,7 @@
     const art = el('article');
     const cover = el('div', { class: 'cover' });
     if (p.thumb) cover.append(el('img', { src: mediaUrl(p.thumb), alt: '' }));
+    if (d.folder) art.append(el('a', { class: 'crumb', href: '#f-' + d.folder.id, text: d.folder.name }));
     art.append(cover, el('h1', { text: p.title }), el('div', { class: 'meta' }, [
       el('span', { text: fmt(p.ts) }), el('span', { text: 'قراءة ' + readMins(p.body) + ' د' }),
     ]));
@@ -281,7 +378,9 @@
       send.disabled = false;
     });
 
-    const back = () => el('a', { class: 'back', href: '#home', text: '→ كل التدوينات' });
+    const back = () => d.folder
+      ? el('a', { class: 'back', href: '#f-' + d.folder.id, text: '→ ' + d.folder.name })
+      : el('a', { class: 'back', href: '#home', text: '→ الرئيسية' });
     view.append(back(), art, react, el('section', { class: 'comments' }, [cTitle, cList, form]), back());
 
     current = { id: p.id, refresh: () => { if (!editing && !ta.value) return reload(); } };
@@ -330,7 +429,7 @@
   }
 
   /* ---------- المحرر (لصاحب المدونة) ---------- */
-  function renderEditor(p) {
+  function renderEditor(p, folders, defFolder) {
     view.textContent = '';
     const draftKey = 'blog-draft-' + (p ? p.id : 'new');
     let saved = null;
@@ -341,13 +440,18 @@
     title.value = (saved && saved.title) || (p ? p.title : '');
     body.value = (saved && saved.body) || (p ? p.body : '');
     let thumbId = (saved && saved.thumb !== undefined) ? saved.thumb : (p ? (p.thumb || '') : '');
+    const folderSel = el('select', { class: 'field', 'aria-label': 'المجلد' }, [el('option', { value: '', text: 'بدون مجلد' })]);
+    folders.forEach((f) => folderSel.append(el('option', { value: f.id, text: f.name })));
+    folderSel.value = (saved && saved.folder !== undefined) ? saved.folder : defFolder;
+    if (folderSel.value !== ((saved && saved.folder !== undefined) ? saved.folder : defFolder)) folderSel.value = '';
 
     let t;
     function keep() {
       clearTimeout(t);
-      t = setTimeout(() => lsSet(draftKey, JSON.stringify({ title: title.value, body: body.value, thumb: thumbId })), 600);
+      t = setTimeout(() => lsSet(draftKey, JSON.stringify({ title: title.value, body: body.value, thumb: thumbId, folder: folderSel.value })), 600);
     }
     title.addEventListener('input', keep);
+    folderSel.addEventListener('change', keep);
     body.addEventListener('input', () => { keep(); renderPreviews(); });
 
     /* صورة الغلاف */
@@ -420,12 +524,43 @@
     file.addEventListener('change', onPick);
     renderPreviews();
 
+    /* هايلايت: يلفّ النص المحدد بـ == == */
+    const hl = el('button', { class: 'btn hl', type: 'button', text: 'هايلايت' });
+    hl.addEventListener('click', () => {
+      const a = body.selectionStart, b = body.selectionEnd;
+      if (a == null || a === b) { notify('حدد النص اللي تبي تظلله أولاً، ثم اضغط هايلايت.'); return; }
+      const v = body.value, sel = v.slice(a, b);
+      if (sel.length > 4 && sel.slice(0, 2) === '==' && sel.slice(-2) === '==') {
+        body.value = v.slice(0, a) + sel.slice(2, -2) + v.slice(b);
+        body.setSelectionRange(a, b - 4);
+      } else if (v.slice(a - 2, a) === '==' && v.slice(b, b + 2) === '==') {
+        body.value = v.slice(0, a - 2) + sel + v.slice(b + 2);
+        body.setSelectionRange(a - 2, b - 2);
+      } else {
+        body.value = v.slice(0, a) + '==' + sel + '==' + v.slice(b);
+        body.setSelectionRange(a, b + 4);
+      }
+      keep();
+    });
+    const prevBox = el('div', { class: 'body pvbox' });
+    prevBox.hidden = true;
+    const prevBtn = el('button', { class: 'btn', type: 'button', text: 'معاينة' });
+    prevBtn.addEventListener('click', () => {
+      prevBox.hidden = !prevBox.hidden;
+      prevBtn.textContent = prevBox.hidden ? 'معاينة' : 'إخفاء المعاينة';
+      if (!prevBox.hidden) renderBody(prevBox, body.value);
+    });
+    body.addEventListener('input', () => { if (!prevBox.hidden) renderBody(prevBox, body.value); });
+
     const save = el('button', { class: 'btn primary', type: 'submit', text: p ? 'حفظ التعديل' : 'انشر التدوينة' });
     const form = el('form', { class: 'write' }, [
-      title, thumbBox, body,
+      title, folderSel, thumbBox,
+      el('div', { class: 'row' }, [hl, prevBtn]),
+      body,
+      prevBox,
       el('div', { class: 'row' }, [pick, file]),
       previews,
-      el('p', { class: 'hint', text: 'اترك سطراً فارغاً بين الفقرات. ابدأ السطر بـ ## لعنوان فرعي. الصور تتصغّر تلقائياً قبل الرفع، والفيديو الحد الأقصى له 5 ميغابايت. المسودة تنحفظ تلقائياً في هذا المتصفح.' }),
+      el('p', { class: 'hint', text: 'اترك سطراً فارغاً بين الفقرات. ابدأ السطر بـ ## لعنوان فرعي. لتظليل كلام: حدده واضغط «هايلايت». الصور تتصغّر تلقائياً قبل الرفع، والفيديو الحد الأقصى له 5 ميغابايت. المسودة تنحفظ تلقائياً في هذا المتصفح.' }),
       el('div', { class: 'row' }, [save, el('a', { class: 'btn', href: p ? '#p-' + p.id : '#home', text: 'إلغاء' })]),
     ]);
     form.addEventListener('submit', async (e) => {
@@ -434,7 +569,7 @@
       if (!ti || !bo) { notify('اكتب عنواناً ونصاً أولاً.'); return; }
       save.disabled = true;
       try {
-        const payload = { title: ti, body: bo, thumb: thumbId };
+        const payload = { title: ti, body: bo, thumb: thumbId, folder: folderSel.value };
         const r = p ? await api('PUT', '/posts/' + p.id, payload) : await api('POST', '/posts', payload);
         lsDel(draftKey);
         location.hash = 'p-' + r.id;

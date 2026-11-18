@@ -9,6 +9,8 @@
   --accent-fg: #FFFFFF;
   --accent-soft: #DDEEE9;
   --danger: #B42318;
+  --mark-bg: #FFE066;
+  --mark-fg: #2A2200;
   --font-display: 'Readex Pro', 'IBM Plex Sans Arabic', system-ui, sans-serif;
   --font-body: 'IBM Plex Sans Arabic', system-ui, sans-serif;
 }
@@ -16,12 +18,14 @@
   :root:not([data-theme="light"]) {
     --bg: #0E1513; --surface: #151E1B; --fg: #E4ECE8; --muted: #93A59F; --line: #26332F;
     --accent: #4FC3A9; --accent-fg: #06201A; --accent-soft: #17302A; --danger: #F0877D;
+    --mark-bg: #7A6200; --mark-fg: #FFF3C4;
     color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
   --bg: #0E1513; --surface: #151E1B; --fg: #E4ECE8; --muted: #93A59F; --line: #26332F;
   --accent: #4FC3A9; --accent-fg: #06201A; --accent-soft: #17302A; --danger: #F0877D;
+  --mark-bg: #7A6200; --mark-fg: #FFF3C4;
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
@@ -121,3 +125,19 @@ img { max-width: 100%; }
 .foot { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line); font-size: 14px; }
 .foot a, .foot button { color: var(--muted); background: none; border: 0; cursor: pointer; padding: 0; text-decoration: underline; font-size: 14px; }
 .login { max-width: 360px; }
+
+mark { background: var(--mark-bg); color: var(--mark-fg); border-radius: 4px; padding: 0 .15em; }
+.btn.hl { background: var(--mark-bg); color: var(--mark-fg); border-color: var(--mark-bg); }
+.pvbox { margin-top: 0; padding: 12px 16px; background: var(--surface); border: 1px dashed var(--line); border-radius: 12px; }
+select.field { width: 100%; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; }
+.newfolder { display: flex; gap: 8px; margin-top: 14px; }
+.newfolder .field { flex: 1; min-width: 0; }
+.folders { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding-top: 16px; }
+.folder { display: grid; gap: 2px; align-content: start; padding: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; text-decoration: none; min-width: 0; }
+.folder:hover { border-color: var(--accent); }
+.folder b { font-family: var(--font-display); font-weight: 600; font-size: 17px; line-height: 1.6; overflow-wrap: anywhere; }
+.folder small { color: var(--muted); font-size: 13px; }
+.ficon svg { width: 30px; height: 30px; fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.6; stroke-linejoin: round; }
+.sec { font-family: var(--font-display); font-weight: 600; font-size: 18px; margin: 28px 0 0; color: var(--muted); }
+.ftitle { font-family: var(--font-display); font-weight: 600; font-size: 28px; line-height: 1.5; margin: 6px 0 0; overflow-wrap: anywhere; }
+.crumb { display: inline-block; margin-top: 14px; padding: 2px 12px; background: var(--accent-soft); color: var(--accent); border-radius: 999px; font-size: 14px; text-decoration: none; }
