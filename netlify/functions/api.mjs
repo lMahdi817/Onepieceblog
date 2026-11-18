@@ -5,6 +5,8 @@ import { getStore } from "@netlify/blobs";
 const MAX_TITLE = 200;
 const MAX_BODY = 100000;
 const MAX_NAME = 40;
+const MAX_FOLDER = 60;
+const MAX_FOLDERS = 100;
 const MAX_COMMENT = 1000;
 const MAX_COMMENTS_PER_POST = 500;
 const MAX_MEDIA_BYTES = 5_000_000; // حد الطلب الواحد في دوال Netlify حوالي 6 ميغابايت
@@ -56,6 +58,10 @@ async function deleteMedia(ids) {
 async function readJson(req) {
   try { return await req.json(); } catch (e) { return null; }
 }
+async function loadFolders(store) {
+  return (await store.get("folders", { type: "json" })) || [];
+}
+const folderOk = (folders, id) => (ID_RE.test(id || "") && folders.some((f) => f.id === id) ? id : "");
 const sanitizeComment = (c, token, admin) => ({
   id: c.id, name: c.name, text: c.text, ts: c.ts, edited: c.edited || 0,
   mine: !!token && c.token === token, canManage: admin || (!!token && c.token === token),
@@ -120,6 +126,52 @@ export default async function handler(req) {
       return fail(405, "طلب غير مدعوم.");
     }
 
+    // ---- المجلدات ----
+    if (parts[0] === "folders") {
+      const store = blog();
+      if (parts.length === 1 && method === "GET") return json({ folders: await loadFolders(store) });
+      if (!admin) return fail(401, "هذا الإجراء لصاحب المدونة فقط.");
+      if (parts.length === 1 && method === "POST") {
+        const b = await readJson(req);
+        const name = clean(b?.name, MAX_FOLDER);
+        if (!name) return fail(400, "اكتب اسم المجلد.");
+        const folders = await loadFolders(store);
+        if (folders.length >= MAX_FOLDERS) return fail(400, "وصلت للحد الأقصى من المجلدات.");
+        const f = { id: newId(), name, ts: Date.now() };
+        folders.push(f);
+        await store.setJSON("folders", folders);
+        return json({ folder: f });
+      }
+      const fid = parts[1];
+      if (!fid || !ID_RE.test(fid) || parts.length !== 2) return fail(404, "غير موجود.");
+      const folders = await loadFolders(store);
+      const i = folders.findIndex((f) => f.id === fid);
+      if (i < 0) return fail(404, "ما لقينا هذا المجلد.");
+      if (method === "PUT") {
+        const b = await readJson(req);
+        const name = clean(b?.name, MAX_FOLDER);
+        if (!name) return fail(400, "اكتب اسم المجلد.");
+        folders[i] = { ...folders[i], name };
+        await store.setJSON("folders", folders);
+        return json({ folder: folders[i] });
+      }
+      if (method === "DELETE") {
+        folders.splice(i, 1);
+        await store.setJSON("folders", folders);
+        const index = (await store.get("index", { type: "json" })) || [];
+        for (const e of index) {
+          if (e.folder === fid) {
+            e.folder = "";
+            const post = await store.get(`post:${e.id}`, { type: "json" });
+            if (post) { post.folder = ""; await store.setJSON(`post:${e.id}`, post); }
+          }
+        }
+        await store.setJSON("index", index);
+        return json({ ok: true });
+      }
+      return fail(405, "طلب غير مدعوم.");
+    }
+
     // ---- التدوينات ----
     if (parts[0] === "posts") {
       const store = blog();
@@ -134,11 +186,12 @@ export default async function handler(req) {
         const b = await readJson(req);
         const title = clean(b?.title, MAX_TITLE), body = clean(b?.body, MAX_BODY);
         const thumb = ID_RE.test(b?.thumb || "") ? b.thumb : "";
+        const folder = folderOk(await loadFolders(store), b?.folder);
         if (!title || !body) return fail(400, "اكتب عنواناً ونصاً.");
-        const post = { id: newId(), title, body, thumb, ts: Date.now(), edited: 0 };
+        const post = { id: newId(), title, body, thumb, folder, ts: Date.now(), edited: 0 };
         await store.setJSON(`post:${post.id}`, post);
         const index = (await store.get("index", { type: "json" })) || [];
-        index.unshift({ id: post.id, title, thumb, ts: post.ts });
+        index.unshift({ id: post.id, title, thumb, folder, ts: post.ts });
         await store.setJSON("index", index);
         return json({ id: post.id });
       }
@@ -151,8 +204,10 @@ export default async function handler(req) {
         if (!post) return fail(404, "ما لقينا هذي التدوينة.");
         const likes = (await store.get(`likes:${id}`, { type: "json" })) || { voters: {} };
         const comments = (await store.get(`comments:${id}`, { type: "json" })) || [];
+        const fl = (await loadFolders(store)).find((f) => f.id === post.folder);
         return json({
           post,
+          folder: fl ? { id: fl.id, name: fl.name } : null,
           likes: { count: Object.keys(likes.voters).length, liked: !!token && !!likes.voters[token] },
           comments: comments.map((c) => sanitizeComment(c, token, admin)),
         });
@@ -165,12 +220,13 @@ export default async function handler(req) {
         const b = await readJson(req);
         const title = clean(b?.title, MAX_TITLE), body = clean(b?.body, MAX_BODY);
         const thumb = ID_RE.test(b?.thumb || "") ? b.thumb : "";
+        const folder = folderOk(await loadFolders(store), b?.folder);
         if (!title || !body) return fail(400, "اكتب عنواناً ونصاً.");
-        const post = { ...old, title, body, thumb, edited: Date.now() };
+        const post = { ...old, title, body, thumb, folder, edited: Date.now() };
         await store.setJSON(`post:${id}`, post);
         const index = (await store.get("index", { type: "json" })) || [];
         const i = index.findIndex((x) => x.id === id);
-        if (i >= 0) index[i] = { id, title, thumb, ts: old.ts };
+        if (i >= 0) index[i] = { id, title, thumb, folder, ts: old.ts };
         await store.setJSON("index", index);
         const keep = mediaIdsOf(post);
         await deleteMedia([...mediaIdsOf(old)].filter((m) => !keep.has(m)));
