@@ -35,6 +35,9 @@
     folder: svg('<path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4.2l2 2.2h8.8A1.5 1.5 0 0 1 21 8.7v9.8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"/>'),
     doc: svg('<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4M9 12h6M9 16h6"/>'),
     gear: svg('<path d="M4 6h10M18 6h2M4 12h2M10 12h10M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="8" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>'),
+    marker: svg('<path d="M14 4l6 6-9.5 9.5H6.5v-4z"/><path d="M4 21h8"/>'),
+    clock: svg('<circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3 2"/>'),
+    info: svg('<circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v5"/>'),
     out: svg('<path d="M10 4H5v16h5M15 8l4 4-4 4M19 12H9"/>'),
   };
 
@@ -58,8 +61,8 @@
     st.setProperty('--accent', colorOf(folderAccent || siteAccent));
     st.setProperty('--accent-fg', dark ? '#0b0f0e' : '#ffffff');
     if (folderAccent) {
-      st.setProperty('--bg', 'color-mix(in srgb, var(--accent) ' + (dark ? 6 : 5) + '%, ' + (dark ? '#0B1013' : '#ffffff') + ')');
-      st.setProperty('--surface', 'color-mix(in srgb, var(--accent) ' + (dark ? 6 : 4) + '%, ' + (dark ? '#10171B' : '#fafafa') + ')');
+      st.setProperty('--bg', 'color-mix(in srgb, var(--accent) ' + (dark ? 11 : 7) + '%, ' + (dark ? '#0B1013' : '#ffffff') + ')');
+      st.setProperty('--surface', 'color-mix(in srgb, var(--accent) ' + (dark ? 9 : 5) + '%, ' + (dark ? '#10171B' : '#fafafa') + ')');
       st.setProperty('--line', 'color-mix(in srgb, var(--accent) 22%, ' + (dark ? '#1D262B' : '#dbdbdb') + ')');
     } else {
       ['--bg', '--surface', '--line'].forEach((p) => st.removeProperty(p));
@@ -85,8 +88,15 @@
     }
     return fmt(ts);
   }
+  let dtFmt = null;
+  try { dtFmt = new Intl.DateTimeFormat('ar-SA-u-ca-gregory-nu-latn', { dateStyle: 'medium', timeStyle: 'short' }); } catch (e) { /* تجاهل */ }
+  const fmtDT = (ts) => { try { return dtFmt.format(new Date(ts)); } catch (e) { return ''; } };
+  const isScheduled = (p) => !!p.pub && p.pub > Date.now();
+  const shownTs = (p) => (p.pub && p.pub <= Date.now() ? p.pub : p.ts);
+  const pad2 = (n) => String(n).padStart(2, '0');
+  const toLocalInput = (ms) => { const d = new Date(ms); return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) + 'T' + pad2(d.getHours()) + ':' + pad2(d.getMinutes()); };
   const FRESH_MS = 7 * 86400000;
-  const isFresh = (p) => !!p.fresh && Date.now() - p.fresh < FRESH_MS;
+  const isFresh = (p) => !!p.fresh && p.fresh <= Date.now() && Date.now() - p.fresh < FRESH_MS && !isScheduled(p);
   const mediaUrl = (id) => (window.__mediaUrl && window.__mediaUrl(id)) || '/api/media/' + encodeURIComponent(id);
   const MARKER = /^\[(صورة|فيديو):([A-Za-z0-9_-]+)\]$/;
 
@@ -136,15 +146,33 @@
   const readMins = (t) => Math.max(1, Math.ceil(String(t || '').split(/\s+/).length / 170));
   const paragraphs = (t) => String(t || '').split(/\n{2,}/).map((s) => s.trim()).filter(Boolean);
 
+  /* تنسيق داخل السطر: **غامق** و ==هايلايت== (ويقدرون يتداخلون) */
   function inline(parent, text) {
-    const re = /==([\s\S]+?)==/g;
-    let last = 0, m;
+    const re = /(\*\*|==)/g;
+    let last = 0, m, cur = parent;
+    const stack = [];
+    const add = (t) => { if (t) cur.append(document.createTextNode(t)); };
     while ((m = re.exec(text))) {
-      if (m.index > last) parent.append(document.createTextNode(text.slice(last, m.index)));
-      parent.append(el('mark', { text: m[1] }));
-      last = m.index + m[0].length;
+      add(text.slice(last, m.index));
+      last = m.index + 2;
+      const tok = m[1];
+      const i = stack.findIndex((x) => x.tok === tok);
+      if (i >= 0) {
+        if (i === stack.length - 1) cur = stack.pop().prev; else add(tok);
+      } else {
+        const node = el(tok === '**' ? 'strong' : 'mark');
+        stack.push({ tok, node, prev: cur });
+        cur.append(node);
+        cur = node;
+      }
     }
-    if (last < text.length) parent.append(document.createTextNode(text.slice(last)));
+    add(text.slice(last));
+    while (stack.length) { // علامة بدون إغلاق: نرجعها نص عادي
+      const x = stack.pop(), frag = document.createDocumentFragment();
+      frag.append(document.createTextNode(x.tok));
+      while (x.node.firstChild) frag.append(x.node.firstChild);
+      x.node.replaceWith(frag);
+    }
     return parent;
   }
   function renderBody(box, text) {
@@ -221,6 +249,76 @@
   }
   setInterval(() => { if (!document.hidden) refreshNotes(); }, 60000);
 
+  /* ---------- تنبيه الزوار ---------- */
+  let notice = null;
+  function noticeBox(text, closable) {
+    const box = el('div', { class: 'notice', role: 'status' });
+    const p = inline(el('p'), text);
+    box.append(p);
+    if (closable) {
+      const x = el('button', { class: 'nclose', type: 'button', 'aria-label': 'إغلاق', title: 'إغلاق', html: IC.plus });
+      x.addEventListener('click', () => { lsSet('blog-notice-seen', String(notice.ts)); box.remove(); });
+      box.append(x);
+    }
+    return box;
+  }
+  function renderNotice() {
+    const old = document.querySelector('#root > .notice');
+    if (old) old.remove();
+    if (!notice || notice.expired || (notice.until && Date.now() >= notice.until) || lsGet('blog-notice-seen') === String(notice.ts)) return;
+    const root = $('root');
+    root.insertBefore(noticeBox(notice.text, true), root.firstChild);
+  }
+  function renderNoticeEditor() {
+    view.textContent = '';
+    const ta = el('textarea', { class: 'field', maxlength: '600', placeholder: 'اكتب التنبيه اللي يطلع للزوار أول ما يفتحون الصفحة…', 'aria-label': 'نص التنبيه' });
+    ta.value = notice ? notice.text : '';
+    const toLocal = (ms) => { const d = new Date(ms - new Date(ms).getTimezoneOffset() * 60000); return d.toISOString().slice(0, 16); };
+    const useUntil = el('input', { type: 'checkbox', id: 'n-until-on' });
+    const until = el('input', { type: 'datetime-local', class: 'field', id: 'n-until', 'aria-label': 'وقت انتهاء التنبيه' });
+    until.hidden = true;
+    if (notice && notice.until) { useUntil.checked = true; until.hidden = false; until.value = toLocal(notice.until); }
+    useUntil.addEventListener('change', () => {
+      until.hidden = !useUntil.checked;
+      if (useUntil.checked && !until.value) until.value = toLocal(Date.now() + 86400000);
+    });
+    const pv = el('div');
+    const paint = () => { pv.textContent = ''; if (ta.value.trim()) pv.append(noticeBox(ta.value.trim(), false)); };
+    ta.addEventListener('input', paint); paint();
+    const save = el('button', { class: 'btn primary', type: 'submit', text: 'حفظ التنبيه' });
+    const kids = [save];
+    if (notice) {
+      const del = el('button', { class: 'btn danger', type: 'button', text: 'حذف التنبيه' });
+      del.addEventListener('click', async () => {
+        if (!del.dataset.sure) { del.dataset.sure = '1'; del.textContent = 'تأكيد الحذف'; return; }
+        del.disabled = true;
+        try { await api('PUT', '/notice', { text: '' }); notice = null; renderNotice(); location.hash = 'home'; }
+        catch (err) { del.disabled = false; notify(err.message); }
+      });
+      kids.push(del);
+    }
+    kids.push(el('a', { class: 'btn', href: '#home', text: 'إلغاء' }));
+    const form = el('form', { class: 'write' }, [
+      el('h3', { text: 'تنبيه للزوار' }),
+      el('p', { class: 'hint', text: 'يطلع لكل زائر أول ما يفتح الصفحة، وتقدر يسكّره. لو غيّرت النص يرجع يطلع للكل من جديد. لتغميق كلام حطه بين ** و **.' }),
+      ta,
+      el('label', { class: 'check', for: 'n-until-on' }, [useUntil, el('span', { html: IC.clock }), el('span', { text: 'يختفي التنبيه تلقائياً في وقت معين' })]),
+      until,
+      el('p', { class: 'hint', text: 'كذا يبان للزائر:' }), pv, el('div', { class: 'row' }, kids),
+    ]);
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      save.disabled = true;
+      try {
+        const u = useUntil.checked && until.value ? new Date(until.value).getTime() : 0;
+        if (useUntil.checked && (!u || u <= Date.now())) { save.disabled = false; notify('اختر وقت انتهاء في المستقبل.'); return; }
+        const r = await api('PUT', '/notice', { text: ta.value, until: u });
+        notice = r.notice; renderNotice(); location.hash = 'home';
+      } catch (err) { save.disabled = false; notify(err.message); }
+    });
+    view.append(el('a', { class: 'back', href: '#home', text: '→ رجوع' }), form);
+  }
+
   /* ---------- التوجيه ---------- */
   function parseRoute() {
     const h = (location.hash || '').replace(/^#/, '');
@@ -231,6 +329,7 @@
     if (h.indexOf('folder-edit-') === 0) return { name: 'folderedit', id: h.slice(12) };
     if (h === 'write') return { name: 'write' };
     if (h.indexOf('write-') === 0) return { name: 'write', folder: h.slice(6) };
+    if (h === 'notice') return { name: 'notice' };
     if (h === 'login') return { name: 'login' };
     return { name: 'home' };
   }
@@ -285,6 +384,7 @@
         };
         const inFolder = route.name === 'folder' ? route.id : '';
         item(IC.doc, 'تدوينة جديدة', () => { location.hash = inFolder ? 'write-' + inFolder : 'write'; });
+        item(IC.info, 'تنبيه للزوار', () => { location.hash = 'notice'; });
         item(IC.folder, 'مجلد جديد', () => { location.hash = 'folder-new'; });
         if (inFolder) item(IC.pencil, 'تعديل هذا المجلد', () => { location.hash = 'folder-edit-' + inFolder; });
         item(IC.out, 'خروج', () => { adminPw = ''; isAdmin = false; lsDel('blog-admin'); notes = []; location.hash = 'home'; go(); });
@@ -348,6 +448,13 @@
         if (!f) { const e = new Error('x'); e.status = 404; throw e; }
         setFolderAccent(f.color);
         renderFolderEditor(f);
+      } else if (route.name === 'notice') {
+        if (!isAdmin) { location.hash = 'login'; return; }
+        const nd = await api('GET', '/notice');
+        if (my !== routeSeq) return;
+        notice = nd.notice; renderNotice();
+        setFolderAccent(null);
+        renderNoticeEditor();
       } else if (route.name === 'login') {
         setFolderAccent(null);
         renderLogin();
@@ -364,16 +471,21 @@
   }
 
   /* ---------- الصفحة الرئيسية ---------- */
-  function postCards(posts) {
+  function postCards(posts, folders) {
     const list = el('section', { class: 'cards' });
+    const fmap = {};
+    (folders || []).forEach((f) => { fmap[f.id] = f; });
     posts.forEach((p) => {
       const kids = [];
+      const fb = !p.thumb && fmap[p.folder] && fmap[p.folder].thumb;
       if (p.thumb) kids.push(el('img', { src: mediaUrl(p.thumb), alt: '', loading: 'lazy' }));
+      else if (fb) kids.push(el('img', { class: 'fb', src: mediaUrl(fb), alt: '', loading: 'lazy' }));
       const cap = el('div', { class: 'cap' });
-      if (isFresh(p)) cap.append(newTag());
+      if (isAdmin && isScheduled(p)) cap.append(el('span', { class: 'schedtag' }, [el('span', { html: IC.clock }), el('span', { text: 'مجدولة · ' + fmtDT(p.pub) })]));
+      else if (isFresh(p)) cap.append(newTag());
       cap.append(el('h2', { text: p.title }));
       kids.push(cap);
-      list.append(el('a', { class: 'card' + (p.thumb ? '' : ' plain'), href: '#p-' + p.id }, kids));
+      list.append(el('a', { class: 'card' + (p.thumb || fb ? '' : ' plain'), href: '#p-' + p.id }, kids));
     });
     return list;
   }
@@ -403,7 +515,7 @@
     if (!posts.length && !folders.length) {
       view.append(el('p', { class: 'empty', text: isAdmin ? 'ما كتبت شي للحين. اضغط زر + وابدأ.' : 'ما فيه تدوينات للحين. ارجع قريب.' }));
     } else if (loose.length) {
-      view.append(postCards(loose));
+      view.append(postCards(loose, folders));
     }
   }
 
@@ -415,7 +527,7 @@
     view.append(el('h1', { class: 'ftitle', text: f.name }));
     const mine = posts.filter((p) => p.folder === fid);
     if (!mine.length) view.append(el('p', { class: 'empty', text: 'المجلد فاضي للحين.' }));
-    else view.append(postCards(mine));
+    else view.append(postCards(mine, folders));
   }
 
   /* ---------- صفحة التدوينة ---------- */
@@ -428,8 +540,9 @@
     if (p.thumb) cover.append(el('img', { src: mediaUrl(p.thumb), alt: '' }));
     art.append(cover);
     if (isFresh(p)) art.append(el('div', { class: 'tagrow' }, [newTag()]));
+    if (isAdmin && isScheduled(p)) art.append(el('div', { class: 'schedbar' }, [el('span', { html: IC.clock }), el('span', { text: 'مجدولة للنشر: ' + fmtDT(p.pub) + ' (ما أحد يشوفها غيرك لين هالوقت)' })]));
     art.append(el('h1', { text: p.title }), el('div', { class: 'meta' }, [
-      el('span', { text: fmt(p.ts) }), el('span', { text: 'قراءة ' + readMins(p.body) + ' د' }),
+      el('span', { text: fmt(shownTs(p)) }), el('span', { text: 'قراءة ' + readMins(p.body) + ' د' }),
     ]));
     if (isAdmin) {
       const del = el('button', { class: 'btn danger', type: 'button', text: 'حذف' });
@@ -690,15 +803,22 @@
     if (folderSel.value !== want) folderSel.value = '';
     const freshCb = el('input', { type: 'checkbox', id: 'f-fresh' });
     freshCb.checked = (saved && saved.fresh !== undefined) ? !!saved.fresh : !!(p && p.fresh);
+    const schedCb = el('input', { type: 'checkbox', id: 'f-sched' });
+    const when = el('input', { class: 'field', id: 'f-when', type: 'datetime-local', 'aria-label': 'وقت النشر' });
+    const pubNow = p && isScheduled(p) ? p.pub : 0;
+    schedCb.checked = (saved && saved.sched !== undefined) ? !!saved.sched : !!pubNow;
+    when.value = (saved && saved.when) || (pubNow ? toLocalInput(pubNow) : '');
+    when.hidden = !schedCb.checked;
 
     let t;
     function keep() {
       clearTimeout(t);
-      t = setTimeout(() => lsSet(draftKey, JSON.stringify({ title: title.value, body: body.value, thumb: thumbId, folder: folderSel.value, fresh: freshCb.checked })), 600);
+      t = setTimeout(() => lsSet(draftKey, JSON.stringify({ title: title.value, body: body.value, thumb: thumbId, folder: folderSel.value, fresh: freshCb.checked, sched: schedCb.checked, when: when.value })), 600);
     }
     title.addEventListener('input', keep);
     folderSel.addEventListener('change', keep);
     freshCb.addEventListener('change', keep);
+    when.addEventListener('input', keep);
     body.addEventListener('input', () => { keep(); renderPreviews(); });
 
     const thumbBox = coverPicker('f-thumb', () => thumbId, (v) => { thumbId = v; }, keep, 'إضافة صورة غلاف', 'تغيير صورة الغلاف', 'إزالة الغلاف');
@@ -750,24 +870,29 @@
     file.addEventListener('change', onPick);
     renderPreviews();
 
-    /* هايلايت: يلفّ النص المحدد بـ == == */
-    const hl = el('button', { class: 'btn hl', type: 'button', text: 'هايلايت' });
-    hl.addEventListener('click', () => {
-      const a = body.selectionStart, b = body.selectionEnd;
-      if (a == null || a === b) { notify('حدد النص اللي تبي تظلله أولاً، ثم اضغط هايلايت.'); return; }
+    /* تنسيق: يلفّ النص المحدد بعلامة (غامق ** أو هايلايت ==) ويرجّعه عادي لو ضغطت مرة ثانية */
+    function wrapSel(tok, hint) {
+      const a = body.selectionStart, b = body.selectionEnd, n = tok.length;
+      if (a == null || a === b) { notify(hint); return; }
       const v = body.value, sel = v.slice(a, b);
-      if (sel.length > 4 && sel.slice(0, 2) === '==' && sel.slice(-2) === '==') {
-        body.value = v.slice(0, a) + sel.slice(2, -2) + v.slice(b);
-        body.setSelectionRange(a, b - 4);
-      } else if (v.slice(a - 2, a) === '==' && v.slice(b, b + 2) === '==') {
-        body.value = v.slice(0, a - 2) + sel + v.slice(b + 2);
-        body.setSelectionRange(a - 2, b - 2);
+      if (sel.length > 2 * n && sel.slice(0, n) === tok && sel.slice(-n) === tok) {
+        body.value = v.slice(0, a) + sel.slice(n, -n) + v.slice(b);
+        body.setSelectionRange(a, b - 2 * n);
+      } else if (v.slice(a - n, a) === tok && v.slice(b, b + n) === tok) {
+        body.value = v.slice(0, a - n) + sel + v.slice(b + n);
+        body.setSelectionRange(a - n, b - n);
       } else {
-        body.value = v.slice(0, a) + '==' + sel + '==' + v.slice(b);
-        body.setSelectionRange(a, b + 4);
+        body.value = v.slice(0, a) + tok + sel + tok + v.slice(b);
+        body.setSelectionRange(a, b + 2 * n);
       }
       keep();
-    });
+      if (!prevBox.hidden) renderBody(prevBox, body.value);
+    }
+    const boldBtn = el('button', { class: 'btn fmt', type: 'button', 'aria-label': 'غامق', title: 'غامق' }, [el('b', { text: 'B' })]);
+    const hl = el('button', { class: 'btn fmt hl', type: 'button', 'aria-label': 'هايلايت', title: 'هايلايت', html: IC.marker });
+    [boldBtn, hl].forEach((b) => b.addEventListener('mousedown', (e) => e.preventDefault()));
+    boldBtn.addEventListener('click', () => wrapSel('**', 'حدد النص اللي تبي تغمّقه أولاً، ثم اضغط B.'));
+    hl.addEventListener('click', () => wrapSel('==', 'حدد النص اللي تبي تظلله أولاً، ثم اضغط علامة التظليل.'));
     const prevBox = el('div', { class: 'body pvbox' });
     prevBox.hidden = true;
     const prevBtn = el('button', { class: 'btn', type: 'button', text: 'معاينة' });
@@ -778,26 +903,37 @@
     });
     body.addEventListener('input', () => { if (!prevBox.hidden) renderBody(prevBox, body.value); });
 
-    const save = el('button', { class: 'btn primary', type: 'submit', text: p ? 'حفظ التعديل' : 'انشر التدوينة' });
+    const save = el('button', { class: 'btn primary', type: 'submit' });
+    const paintSave = () => { save.textContent = schedCb.checked ? 'جدولة التدوينة' : (p ? 'حفظ التعديل' : 'انشر التدوينة'); when.hidden = !schedCb.checked; };
+    schedCb.addEventListener('change', () => { paintSave(); keep(); });
+    paintSave();
     const form = el('form', { class: 'write' }, [
       title, folderSel, thumbBox,
-      el('div', { class: 'row' }, [hl, prevBtn]),
+      el('div', { class: 'row' }, [boldBtn, hl, prevBtn]),
       body,
       prevBox,
       el('div', { class: 'row' }, [pick, file]),
       previews,
+      el('label', { class: 'check', for: 'f-sched' }, [schedCb, el('span', { html: IC.clock }), el('span', { text: 'جدولة النشر لوقت لاحق' })]),
+      when,
       el('label', { class: 'check', for: 'f-fresh' }, [freshCb, el('span', { text: 'علّمها «مدونة جديدة» (تظهر شارة ذهبية لمدة أسبوع)' })]),
-      el('p', { class: 'hint', text: 'اترك سطراً فارغاً بين الفقرات. ابدأ السطر بـ ## لعنوان فرعي. لتظليل كلام: حدده واضغط «هايلايت». الصور تتصغّر تلقائياً قبل الرفع، والفيديو الحد الأقصى له 5 ميغابايت. المسودة تنحفظ تلقائياً في هذا المتصفح.' }),
+      el('p', { class: 'hint', text: 'اترك سطراً فارغاً بين الفقرات. ابدأ السطر بـ ## لعنوان فرعي. لتغميق كلام أو تظليله: حدده واضغط B أو علامة القلم. الصور تتصغّر تلقائياً قبل الرفع، والفيديو الحد الأقصى له 5 ميغابايت. المسودة تنحفظ تلقائياً في هذا المتصفح.' }),
       el('div', { class: 'row' }, [save, el('a', { class: 'btn', href: p ? '#p-' + p.id : '#home', text: 'إلغاء' })]),
     ]);
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const ti = title.value.trim(), bo = body.value.trim();
       if (!ti || !bo) { notify('اكتب عنواناً ونصاً أولاً.'); return; }
+      let at = 0;
+      if (schedCb.checked) {
+        at = when.value ? new Date(when.value).getTime() : 0;
+        if (!at || at < Date.now() + 30000) { notify('اختر وقت نشر لاحق (بعد دقيقة على الأقل).'); return; }
+      }
       save.disabled = true;
       try {
-        const payload = { title: ti, body: bo, thumb: thumbId, folder: folderSel.value, fresh: freshCb.checked };
+        const payload = { title: ti, body: bo, thumb: thumbId, folder: folderSel.value, fresh: freshCb.checked, publishAt: at };
         const r = p ? await api('PUT', '/posts/' + p.id, payload) : await api('POST', '/posts', payload);
+        clearTimeout(t);
         lsDel(draftKey);
         location.hash = 'p-' + r.id;
       } catch (err) {
@@ -898,5 +1034,6 @@
     window.addEventListener('hashchange', go);
     go();
     refreshNotes();
+    api('GET', '/notice').then((d) => { notice = d.notice; renderNotice(); }).catch(() => {});
   })();
 })();

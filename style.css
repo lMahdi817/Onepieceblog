@@ -11,8 +11,8 @@
   --danger: #B42318;
   --mark-bg: #FFE066;
   --mark-fg: #2A2200;
-  --font-display: 'Readex Pro', 'IBM Plex Sans Arabic', system-ui, sans-serif;
-  --font-body: 'IBM Plex Sans Arabic', system-ui, sans-serif;
+  --font-display: 'Rubik', system-ui, sans-serif;
+  --font-body: 'Rubik', system-ui, sans-serif;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
@@ -182,8 +182,6 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 .crumb { display: inline-block; margin-top: 14px; padding: 2px 12px; background: var(--accent-soft); color: var(--accent); border-radius: 999px; font-size: 14px; text-decoration: none; }
 
 /* ---- شارة مدونة جديدة ---- */
-.newtag { position: relative; display: inline-block; padding: 1px 14px; color: #2B1F00; font-weight: 600; font-size: 13px; line-height: 1.7; isolation: isolate; }
-.newtag::before { content: ""; position: absolute; inset: 0; z-index: -1; transform: skewX(-14deg); border-radius: 4px; background: linear-gradient(135deg, #FBDD6A, #D9A21B); box-shadow: 0 1px 6px rgba(0, 0, 0, .3); }
 .tagrow { margin-top: 14px; }
 .tagrow + h1 { margin-top: 8px; }
 .check { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 15px; cursor: pointer; }
@@ -222,3 +220,30 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 .like { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
 .foot a, .foot button { color: var(--muted); }
 .card.plain { background: var(--surface); }
+
+/* ---- Rubik + علامة جديدة كبسولة شفافة ---- */
+:root { --gold: #9A6A00; }
+:root[data-theme="dark"] { --gold: #F3C93E; }
+.newtag { display: inline-block; padding: 1px 14px; border-radius: 999px; border: 1.5px solid var(--gold); color: var(--gold); font-weight: 600; font-size: 12.5px; line-height: 1.5; background: transparent; }
+.card:not(.plain) .newtag, .card:not(.plain) .schedtag { color: #F3C93E; border-color: #E8B923; background: rgba(0, 0, 0, .28); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+.card img.fb { filter: brightness(.62) saturate(.9); }
+.schedtag { display: inline-flex; align-items: center; gap: 6px; padding: 1px 12px; border-radius: 999px; border: 1.5px dashed var(--muted); color: var(--muted); font-size: 12.5px; line-height: 1.6; }
+.schedtag svg { width: 14px; height: 14px; }
+.schedbar { display: flex; align-items: center; gap: 8px; margin-top: 14px; padding: 8px 14px; border: 1.5px dashed var(--gold); border-radius: 12px; color: var(--gold); font-size: 14px; line-height: 1.6; }
+.check svg { width: 18px; height: 18px; color: var(--accent); }
+.btn.fmt { width: 42px; height: 38px; padding: 0; justify-content: center; font-size: 18px; }
+.btn.fmt b { font-weight: 800; font-size: 19px; line-height: 1; }
+.btn.fmt svg { width: 20px; height: 20px; }
+
+/* خانة وقت النشر: صغيرة وبحجم محتواها */
+input[type="datetime-local"].field { -webkit-appearance: none; appearance: none; direction: ltr; text-align: center; width: auto; min-width: 0; max-width: 100%; justify-self: start; min-height: 36px; padding: 4px 14px; font-size: 15px; line-height: 1.6; border-radius: 10px; }
+input[type="datetime-local"].field::-webkit-date-and-time-value { text-align: center; min-height: 1.6em; }
+.check input[type="checkbox"] { width: 18px; height: 18px; flex: none; }
+
+/* ---- تنبيه الزوار (حواف متصلة) ---- */
+.notice { position: relative; max-width: 680px; margin: 0 auto 14px; padding: 12px 16px 12px 44px; border: 1.5px solid #D9A21B; border-radius: 14px; background: color-mix(in srgb, #E8B923 18%, var(--surface)); font-size: 16px; line-height: 1.9; }
+.notice p { margin: 0; white-space: pre-line; overflow-wrap: anywhere; }
+.notice strong { font-weight: 600; }
+.nclose { position: absolute; top: 8px; inset-inline-end: 8px; width: 30px; height: 30px; display: grid; place-items: center; border: 0; background: none; border-radius: 50%; color: var(--muted); cursor: pointer; padding: 0; }
+.nclose:hover { background: rgba(128, 128, 128, .18); color: var(--fg); }
+.nclose svg { width: 18px; height: 18px; transform: rotate(45deg); }
