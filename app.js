@@ -201,8 +201,13 @@
     if (same) return;
     popEl = el('div', { class: 'pop', 'data-k': key });
     build(popEl);
-    const top = document.querySelector('.top');
-    if (top) top.append(popEl);
+    if (key === 'plus') {
+      const fw = document.querySelector('.fabwrap');
+      if (fw) fw.insertBefore(popEl, fw.firstChild);
+    } else {
+      const top = document.querySelector('.top');
+      if (top) top.append(popEl);
+    }
   }
   document.addEventListener('click', (e) => {
     if (popEl && !popEl.contains(e.target) && !e.target.closest('.topbtn')) closePop();
@@ -304,7 +309,7 @@
       ta,
       el('label', { class: 'check', for: 'n-until-on' }, [useUntil, el('span', { html: IC.clock }), el('span', { text: 'يختفي التنبيه تلقائياً في وقت معين' })]),
       until,
-      el('p', { class: 'hint', text: 'كذا يبان للزائر:' }), pv, el('div', { class: 'row' }, kids),
+      el('p', { class: 'hint', text: 'كذا يبان للزائر:' }), pv, el('div', { class: 'row stickybar' }, kids),
     ]);
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -338,6 +343,7 @@
     topActions.textContent = '';
     foot.textContent = '';
     closePop();
+    const oldFab = document.querySelector('.fabwrap'); if (oldFab) oldFab.remove();
 
     const bell = el('button', { class: 'topbtn bell', type: 'button', 'aria-label': 'الإشعارات', title: 'الإشعارات' }, [
       el('span', { html: IC.bell }), el('i', { class: 'reddot', hidden: '' }),
@@ -389,7 +395,10 @@
         if (inFolder) item(IC.pencil, 'تعديل هذا المجلد', () => { location.hash = 'folder-edit-' + inFolder; });
         item(IC.out, 'خروج', () => { adminPw = ''; isAdmin = false; lsDel('blog-admin'); notes = []; location.hash = 'home'; go(); });
       }));
-      topActions.append(plus);
+      if (['home', 'folder', 'post'].indexOf(route.name) !== -1) {
+        const fw = el('div', { class: 'fabwrap' }, [plus]);
+        document.body.append(fw);
+      }
     } else {
       foot.append(el('a', { href: '#login', text: 'دخول صاحب المدونة' }));
     }
@@ -535,6 +544,7 @@
     const p = d.post;
     view.textContent = '';
 
+    let ownerBar = null;
     const art = el('article');
     const cover = el('div', { class: 'cover' });
     if (p.thumb) cover.append(el('img', { src: mediaUrl(p.thumb), alt: '' }));
@@ -552,7 +562,7 @@
         try { await api('DELETE', '/posts/' + p.id); location.hash = d.folder ? 'f-' + d.folder.id : 'home'; }
         catch (e) { del.disabled = false; notify(e.message); }
       });
-      art.append(el('div', { class: 'owner-actions' }, [el('a', { class: 'btn', href: '#edit-' + p.id, text: 'تعديل' }), del]));
+      ownerBar = el('div', { class: 'owner-actions stickybar' }, [el('a', { class: 'btn', href: '#edit-' + p.id, text: 'تعديل' }), del]);
     }
     const body = el('div', { class: 'body' });
     renderBody(body, p.body);
@@ -705,13 +715,15 @@
     const back = () => (d.folder
       ? el('a', { class: 'back', href: '#f-' + d.folder.id, text: '→ ' + d.folder.name })
       : el('a', { class: 'back', href: '#home', text: '→ الرئيسية' }));
-    view.append(back(), art, react, el('section', { class: 'comments' }, [cTitle, cList, form]), back());
+    view.append(back(), art, react, el('section', { class: 'comments' }, [cTitle, cList, form]));
+    if (ownerBar) view.append(ownerBar);
 
     if (pendingScroll) {
       const target = pendingScroll; pendingScroll = '';
       requestAnimationFrame(() => {
-        const c = document.getElementById('c-' + target);
-        if (c) { c.scrollIntoView({ block: 'center' }); c.classList.add('flash'); setTimeout(() => c.classList.remove('flash'), 2500); }
+        const c = target === '__c' ? document.querySelector('section.comments') : document.getElementById('c-' + target);
+        if (c && target === '__c') c.scrollIntoView({ block: 'start' });
+        else if (c) { c.scrollIntoView({ block: 'center' }); c.classList.add('flash'); setTimeout(() => c.classList.remove('flash'), 2500); }
       });
     }
     current = { id: p.id, refresh: () => { if (!editing && !ta.value) return reload(); } };
@@ -918,7 +930,7 @@
       when,
       el('label', { class: 'check', for: 'f-fresh' }, [freshCb, el('span', { text: 'علّمها «مدونة جديدة» (تظهر شارة ذهبية لمدة أسبوع)' })]),
       el('p', { class: 'hint', text: 'اترك سطراً فارغاً بين الفقرات. ابدأ السطر بـ ## لعنوان فرعي. لتغميق كلام أو تظليله: حدده واضغط B أو علامة القلم. الصور تتصغّر تلقائياً قبل الرفع، والفيديو الحد الأقصى له 5 ميغابايت. المسودة تنحفظ تلقائياً في هذا المتصفح.' }),
-      el('div', { class: 'row' }, [save, el('a', { class: 'btn', href: p ? '#p-' + p.id : '#home', text: 'إلغاء' })]),
+      el('div', { class: 'row stickybar' }, [save, el('a', { class: 'btn', href: p ? '#p-' + p.id : '#home', text: 'إلغاء' })]),
     ]);
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -970,7 +982,7 @@
       name,
       el('p', { class: 'hint', text: 'ثيم المجلد: اختر لوناً. المجلد وتدويناته ياخذون هذا اللون.' }), dots,
       thumbBox,
-      el('div', { class: 'row' }, [save, el('a', { class: 'btn', href: f ? '#f-' + f.id : '#home', text: 'إلغاء' })]),
+      el('div', { class: 'row stickybar' }, [save, el('a', { class: 'btn', href: f ? '#f-' + f.id : '#home', text: 'إلغاء' })]),
     ];
     const form = el('form', { class: 'write' }, kids);
     form.addEventListener('submit', async (e) => {
